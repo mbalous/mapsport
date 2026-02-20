@@ -1,0 +1,10 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "mapsport",
+    "compatibility_date": "2026-02-20",
+    "main": "./dist/_worker.js/index.js",
+    "assets": {
+        "directory": "./dist",
+        "binding": "ASSETS"
+    }
+}
