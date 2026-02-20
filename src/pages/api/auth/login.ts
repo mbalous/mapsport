@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 
-export const GET: APIRoute = async ({ request }) => {
+export const GET: APIRoute = async ({ request: _request }) => {
     const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID || import.meta.env.STRAVA_CLIENT_ID;
     const PUBLIC_SITE_URL = process.env.PUBLIC_SITE_URL || import.meta.env.PUBLIC_SITE_URL || 'http://localhost:4321';
 

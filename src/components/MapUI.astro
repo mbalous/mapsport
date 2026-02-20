@@ -132,7 +132,7 @@ const { initialActivities, userProfile } = Astro.props;
   href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
 />
 
-<script define:vars={{ initialActivities }}>
+<script is:inline define:vars={{ initialActivities }}>
   // Pass initial SSR activities to window
   window.__INITIAL_ACTIVITIES__ = initialActivities;
 </script>
@@ -148,7 +148,7 @@ const { initialActivities, userProfile } = Astro.props;
   import L from "leaflet";
 
   // Decoding Polyline utility (Vanilla JS, 15 lines equivalent)
-  function decodePolyline(str, precision) {
+  function decodePolyline(str: string, precision: number) {
     let index = 0,
       lat = 0,
       lng = 0,
@@ -183,22 +183,43 @@ const { initialActivities, userProfile } = Astro.props;
     return coordinates;
   }
 
+  function escapeHTML(str: string) {
+    if (!str) return "";
+    return String(str).replace(
+      /[&<>'"]/g,
+      (tag) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "'": "&#39;",
+          '"': "&quot;",
+        })[tag] || tag,
+    );
+  }
+
   // State
   let currentPage = 1;
-  let activities = window.__INITIAL_ACTIVITIES__ || [];
+  let activities = (window as any).__INITIAL_ACTIVITIES__ || [];
   let selectedActivities = new Map(); // id -> activity full object
   const MAX_ACTIVITIES = 10;
 
   // Geolocation cache and queue
   const locationCache = new Map();
-  const locationQueue = [];
+  const locationQueue: { act: any; spanId: string }[] = [];
   let isFetchingLocation = false;
 
   async function processLocationQueue() {
     if (isFetchingLocation || locationQueue.length === 0) return;
     isFetchingLocation = true;
 
-    const { act, spanId } = locationQueue.shift();
+    const shifted = locationQueue.shift();
+    if (!shifted) {
+      isFetchingLocation = false;
+      return;
+    }
+    const { act, spanId } = shifted;
+
     if (!act.start_latlng || act.start_latlng.length < 2) {
       isFetchingLocation = false;
       processLocationQueue();
@@ -222,8 +243,9 @@ const { initialActivities, userProfile } = Astro.props;
           const locStr = [city, country].filter(Boolean).join(", ");
 
           if (locStr) {
-            locationCache.set(cacheKey, locStr);
-            updateLocationDOM(spanId, locStr);
+            const safeLocStr = escapeHTML(locStr);
+            locationCache.set(cacheKey, safeLocStr);
+            updateLocationDOM(spanId, safeLocStr);
           }
         }
       } catch (err) {
@@ -237,7 +259,7 @@ const { initialActivities, userProfile } = Astro.props;
     processLocationQueue();
   }
 
-  function updateLocationDOM(spanId, locStr) {
+  function updateLocationDOM(spanId: string, locStr: string) {
     const el = document.getElementById(spanId);
     if (el && locStr) {
       el.innerText = ` • ${locStr}`;
@@ -252,8 +274,8 @@ const { initialActivities, userProfile } = Astro.props;
   }
 
   // Map Instance
-  let map;
-  let polylineLayerGroup;
+  let map: L.Map | undefined;
+  let polylineLayerGroup: L.LayerGroup | undefined;
 
   function initMap() {
     const worldBounds = L.latLngBounds(L.latLng(-90, -180), L.latLng(90, 180));
@@ -289,7 +311,7 @@ const { initialActivities, userProfile } = Astro.props;
       return;
     }
 
-    activities.forEach((act) => {
+    activities.forEach((act: any) => {
       // Don't render items without a polyline map
       if (!act.map || !act.map.summary_polyline) return;
 
@@ -333,8 +355,8 @@ const { initialActivities, userProfile } = Astro.props;
             ${isSelected ? "checked" : ""} 
             ${isMaxedOut ? "disabled" : ""} value="${act.id}" />
           <div class="flex-1 min-w-0">
-            <h3 class="text-sm font-medium text-gray-200 truncate group-hover:text-white transition-colors">${act.name}</h3>
-            <p class="text-xs text-gray-500 mt-0.5">${date}${defaultLocHTML} • ${act.type}</p>
+            <h3 class="text-sm font-medium text-gray-200 truncate group-hover:text-white transition-colors">${escapeHTML(act.name)}</h3>
+            <p class="text-xs text-gray-500 mt-0.5">${date}${defaultLocHTML} • ${escapeHTML(act.type)}</p>
             <div class="mt-2 flex items-center gap-2 text-xs font-semibold text-gray-400">
               <span>${distance} km</span>
               <span>•</span>
@@ -344,12 +366,13 @@ const { initialActivities, userProfile } = Astro.props;
         </div>
       `;
 
-      item.querySelector("input").addEventListener("change", (e) => {
-        if (e.target.checked) {
+      item.querySelector("input")!.addEventListener("change", (e) => {
+        const target = e.target as HTMLInputElement;
+        if (target.checked) {
           if (selectedActivities.size < MAX_ACTIVITIES) {
             selectedActivities.set(act.id, act);
           } else {
-            e.target.checked = false; // Revert if bypassed
+            target.checked = false; // Revert if bypassed
             alert("Maximum 10 activities allowed.");
             return;
           }
@@ -371,7 +394,7 @@ const { initialActivities, userProfile } = Astro.props;
   }
 
   function updateMapAndStats() {
-    polylineLayerGroup.clearLayers();
+    polylineLayerGroup?.clearLayers();
 
     let totalDist = 0;
     let totalElev = 0;
@@ -395,7 +418,10 @@ const { initialActivities, userProfile } = Astro.props;
     let idx = 0;
 
     selectedActivities.forEach((act) => {
-      const coords = decodePolyline(act.map.summary_polyline, 5);
+      const coords = decodePolyline(
+        act.map.summary_polyline,
+        5,
+      ) as L.LatLngTuple[];
       if (coords.length > 0) {
         const polyline = L.polyline(coords, {
           color: colors[idx % colors.length],
@@ -404,7 +430,7 @@ const { initialActivities, userProfile } = Astro.props;
           lineJoin: "round",
           lineCap: "round",
         });
-        polylineLayerGroup.addLayer(polyline);
+        polylineLayerGroup?.addLayer(polyline);
 
         // Add coordinates to bounds so we can map fit
         coords.forEach((c) => bounds.extend(c));
@@ -418,29 +444,29 @@ const { initialActivities, userProfile } = Astro.props;
 
     if (selectedActivities.size > 0 && bounds.isValid()) {
       // Zoom out a bit from the tightest bound for better visual effect
-      map.flyToBounds(bounds, { padding: [50, 50], duration: 1 });
+      map?.flyToBounds(bounds, { padding: [50, 50], duration: 1 });
     }
 
     // Update stats UI
     const overlay = document.getElementById("stats-overlay");
     const dlBtn = document.getElementById("download-btn");
 
-    if (selectedActivities.size > 0) {
+    if (selectedActivities.size > 0 && overlay && dlBtn) {
       overlay.classList.remove("opacity-0", "translate-y-4");
       overlay.classList.add("opacity-100", "translate-y-0");
 
       dlBtn.classList.remove("opacity-0", "pointer-events-none");
       dlBtn.classList.add("opacity-100", "pointer-events-auto");
 
-      document.getElementById("stat-distance").innerHTML =
+      document.getElementById("stat-distance")!.innerHTML =
         `${(totalDist / 1000).toFixed(1)}<span class="text-sm text-gray-400 ml-1">km</span>`;
-      document.getElementById("stat-elevation").innerHTML =
+      document.getElementById("stat-elevation")!.innerHTML =
         `${Math.round(totalElev)}<span class="text-sm text-gray-400 ml-1">m</span>`;
 
       const hours = Math.floor(totalTime / 3600);
       const mins = Math.floor((totalTime % 3600) / 60);
-      document.getElementById("stat-time").innerText = `${hours}h ${mins}m`;
-    } else {
+      document.getElementById("stat-time")!.innerText = `${hours}h ${mins}m`;
+    } else if (overlay && dlBtn) {
       overlay.classList.add("opacity-0", "translate-y-4");
       overlay.classList.remove("opacity-100", "translate-y-0");
 
@@ -449,8 +475,9 @@ const { initialActivities, userProfile } = Astro.props;
     }
   }
 
-  async function loadPage(page) {
+  async function loadPage(page: number) {
     const listEl = document.getElementById("activity-list");
+    if (!listEl) return;
     listEl.innerHTML = `
       <div class="flex flex-col items-center justify-center p-12 text-gray-400">
         <div class="animate-spin h-8 w-8 border-4 border-orange-500 border-t-transparent rounded-full mb-4"></div>
@@ -463,9 +490,10 @@ const { initialActivities, userProfile } = Astro.props;
       if (res.ok) {
         activities = await res.json();
         currentPage = page;
-        document.getElementById("page-indicator").innerText =
+        document.getElementById("page-indicator")!.innerText =
           `Page ${currentPage}`;
-        document.getElementById("prev-page").disabled = currentPage === 1;
+        (document.getElementById("prev-page") as HTMLButtonElement).disabled =
+          currentPage === 1;
         renderActivityList();
       } else {
         throw new Error("Failed to fetch");
@@ -477,26 +505,28 @@ const { initialActivities, userProfile } = Astro.props;
   }
 
   // Bind Events
-  document.getElementById("prev-page").addEventListener("click", () => {
+  document.getElementById("prev-page")?.addEventListener("click", () => {
     if (currentPage > 1) loadPage(currentPage - 1);
   });
 
-  document.getElementById("next-page").addEventListener("click", () => {
+  document.getElementById("next-page")?.addEventListener("click", () => {
     loadPage(currentPage + 1);
   });
 
   // Export to image feature
   document
     .getElementById("download-btn")
-    .addEventListener("click", async () => {
+    ?.addEventListener("click", async () => {
       // Dynamically import html-to-image to save initial footprint
       const htmlToImage = await import("html-to-image");
 
       const node = document.querySelector("main");
       const btn = document.getElementById("download-btn");
 
+      if (!node) return;
+
       // Hide download button from the screenshot
-      btn.style.display = "none";
+      if (btn) btn.style.display = "none";
 
       try {
         const dataUrl = await htmlToImage.toPng(node, {
@@ -522,12 +552,17 @@ const { initialActivities, userProfile } = Astro.props;
         console.error(err);
         alert("Failed to generate image.");
       } finally {
-        btn.style.display = "flex";
+        if (btn) btn.style.display = "flex";
       }
     });
 
   // Init
   initMap();
-  document.getElementById("prev-page").disabled = currentPage === 1;
+  const prevPageBtn = document.getElementById(
+    "prev-page",
+  ) as HTMLButtonElement | null;
+  if (prevPageBtn) {
+    prevPageBtn.disabled = currentPage === 1;
+  }
   renderActivityList();
 </script>
